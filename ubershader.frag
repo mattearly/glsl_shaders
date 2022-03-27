@@ -10,20 +10,20 @@ in VS_OUT
 
 layout(location=0)out vec4 out_Color;
 
-struct u_material {
+struct Material {
   sampler2D Albedo;
   sampler2D Specular;
   sampler2D Normal;
   sampler2D Emission;
   float Shininess;
 };
-struct u_dir_light {
+struct DirectionalLight {
   vec3 Direction;
   vec3 Ambient;
   vec3 Diffuse;
   vec3 Specular;
 };
-struct u_point_lights {
+struct PointLight {
   vec3 Position;
   float Constant, Linear, Quadratic;
   vec3 Ambient, Diffuse, Specular;
@@ -52,7 +52,7 @@ uniform SpotLight u_spot_lights[MAXSPOTLIGHTS];
 uniform int u_num_point_lights_in_use;
 uniform int u_num_spot_lights_in_use;
 
-vec3 Calcu_dir_light(vec3 normal, vec3 viewDir) {
+vec3 CalculateDirLight(vec3 normal, vec3 viewDir) {
   vec3 lightDir = normalize(-u_dir_light.Direction);
   // diffuse shading
   float diff = max(dot(normal, lightDir), 0.);
@@ -80,7 +80,7 @@ vec3 Calcu_dir_light(vec3 normal, vec3 viewDir) {
   }
 }
 
-vec3 Calcu_point_lights(u_point_lights light, vec3 normal, vec3 viewDir){
+vec3 CalculatePointLights(PointLight light, vec3 normal, vec3 viewDir){
   vec3 lightDir = normalize(light.Position - fs_in.Pos);
   // diffuse shading
   float diff = max(dot(normal, lightDir), 0.0);
@@ -166,9 +166,9 @@ void main()
   }
   vec3 view_dir = normalize(u_view_pos - fs_in.Pos);
   vec3 result;
-  if (u_is_dir_light_on > 0) { result += Calcu_dir_light(normal, view_dir); }
+  if (u_is_dir_light_on > 0) { result += CalculateDirLight(normal, view_dir); }
   int i = 0;
-  for (i; i < u_num_point_lights_in_use; i++) { result += Calcu_point_lights(u_point_lights[i], normal, view_dir); }
+  for (i; i < u_num_point_lights_in_use; i++) { result += CalculatePointLights(u_point_lights[i], normal, view_dir); }
   for (i = 0; i < u_num_spot_lights_in_use; i++) { result += CalcSpotLight(u_spot_lights[i], normal, view_dir); }
   if (u_has_emission_tex > 0) {
     vec3 emission = texture(u_material.Emission, fs_in.TexUV).rgb;
