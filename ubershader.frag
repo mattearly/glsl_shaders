@@ -1,24 +1,29 @@
 #version 430 core
-layout(location=0)in vec3 pass_Pos;
-layout(location=1)in vec2 pass_TexUV;
-layout(location=2)in vec3 pass_Norm;
+
+in VS_OUT
+{
+  vec3 Pos;
+  vec2 TexUV;
+  vec3 Norm;
+} fs_in;
+
 
 layout(location=0)out vec4 out_Color;
 
-struct Material {
+struct u_material {
   sampler2D Albedo;
+  sampler2D Specular;
   sampler2D Normal;
-  sampler2D Metallic;
-  sampler2D Roughness;
-  sampler2D AmbientOcclusion;
+  sampler2D Emission;
+  float Shininess;
 };
-struct DirectionalLight {
+struct u_dir_light {
   vec3 Direction;
   vec3 Ambient;
   vec3 Diffuse;
   vec3 Specular;
 };
-struct PointLight {
+struct u_point_lights {
   vec3 Position;
   float Constant, Linear, Quadratic;
   vec3 Ambient, Diffuse, Specular;
@@ -29,94 +34,99 @@ struct SpotLight {
   float Constant, Linear, Quadratic;
   vec3 Ambient, Diffuse, Specular;
 };
-const vec3 default_color = vec3(0.1);
+
+const vec3 DEFAULT_FRAG_COLOR = vec3(0.9, 0.2, 0.2);  // red so they stand out
 const int MAXPOINTLIGHTS = 24; // if changed, needs to match on light controllers
 const int MAXSPOTLIGHTS = 12;
+
 uniform vec3 u_view_pos;
-uniform int hasAlbedo;
-uniform int hasSpecular;
-uniform int hasNormal;
-uniform int hasEmission;
-uniform Material material;
-uniform int isDirectionalLightOn;
-uniform DirectionalLight directionalLight;
-uniform PointLight pointLight[MAXPOINTLIGHTS];
-uniform SpotLight spotLight[MAXSPOTLIGHTS];
-uniform int NUM_POINT_LIGHTS;
-uniform int NUM_SPOT_LIGHTS;
-vec3 CalcDirectionalLight(vec3 normal, vec3 viewDir) {
-  vec3 lightDir = normalize(-directionalLight.Direction);
+uniform int u_has_albedo_tex;
+uniform int u_has_specular_tex;
+uniform int u_has_normal_tex;
+uniform int u_has_emission_tex;
+uniform Material u_material;
+uniform int u_is_dir_light_on;
+uniform DirectionalLight u_dir_light;
+uniform PointLight u_point_lights[MAXPOINTLIGHTS];
+uniform SpotLight u_spot_lights[MAXSPOTLIGHTS];
+uniform int u_num_point_lights_in_use;
+uniform int u_num_spot_lights_in_use;
+
+vec3 Calcu_dir_light(vec3 normal, vec3 viewDir) {
+  vec3 lightDir = normalize(-u_dir_light.Direction);
   // diffuse shading
   float diff = max(dot(normal, lightDir), 0.);
   // specular shading
   float spec;
-  if (hasSpecular > 0) {
+  if (u_has_specular_tex > 0) {
     vec3 reflectDir = reflect(-lightDir, normal);
-    spec = pow(max(dot(viewDir, reflectDir), 0.), material.Shininess);
+    spec = pow(max(dot(viewDir, reflectDir), 0.), u_material.Shininess);
   }
   // combine results
   vec3 ambient;
   vec3 diffuse;
-  if (hasAlbedo > 0) { 
-    ambient = directionalLight.Ambient * texture(material.Albedo, pass_TexUV).rgb;
-    diffuse = directionalLight.Diffuse * diff * texture(material.Albedo, pass_TexUV).rgb;
+  if (u_has_albedo_tex > 0) { 
+    ambient = u_dir_light.Ambient * texture(u_material.Albedo, fs_in.TexUV).rgb;
+    diffuse = u_dir_light.Diffuse * diff * texture(u_material.Albedo, fs_in.TexUV).rgb;
   } else {
-    ambient = directionalLight.Ambient * default_color;
-    diffuse = directionalLight.Diffuse * diff * default_color;
+    ambient = u_dir_light.Ambient * DEFAULT_FRAG_COLOR;
+    diffuse = u_dir_light.Diffuse * diff * DEFAULT_FRAG_COLOR;
   }
-  if (hasSpecular > 0) {
-    vec3 specular = directionalLight.Specular * spec * texture(material.Specular, pass_TexUV).rgb;
+  if (u_has_specular_tex > 0) {
+    vec3 specular = u_dir_light.Specular * spec * texture(u_material.Specular, fs_in.TexUV).r;
     return(ambient + diffuse + specular);
   } else {
     return(ambient + diffuse);
   }
 }
-vec3 CalcPointLight(PointLight light, vec3 normal, vec3 viewDir){
-  vec3 lightDir = normalize(light.Position - pass_Pos);
+
+vec3 Calcu_point_lights(u_point_lights light, vec3 normal, vec3 viewDir){
+  vec3 lightDir = normalize(light.Position - fs_in.Pos);
   // diffuse shading
   float diff = max(dot(normal, lightDir), 0.0);
   // specular shading
   float spec;
-  if (hasSpecular > 0) {
+  if (u_has_specular_tex > 0) {
     vec3 reflectDir = reflect(-lightDir, normal);
-    spec = pow(max(dot(viewDir, reflectDir), 0.0), material.Shininess);
+    spec = pow(max(dot(viewDir, reflectDir), 0.0), u_material.Shininess);
   }
   // attenuation
-  float dist = length(light.Position - pass_Pos);
+  float dist = length(light.Position - fs_in.Pos);
   float attenuation = 1.0 / (light.Constant + light.Linear * dist + light.Quadratic * (dist * dist));
   // combine results
   vec3 ambient;
   vec3 diffuse;
-  if (hasAlbedo > 0) {
-    ambient = light.Ambient * texture(material.Albedo, pass_TexUV).rgb;
-    diffuse = light.Diffuse * diff * texture(material.Albedo, pass_TexUV).rgb;
+  if (u_has_albedo_tex > 0) {
+    ambient = light.Ambient * texture(u_material.Albedo, fs_in.TexUV).rgb;
+    diffuse = light.Diffuse * diff * texture(u_material.Albedo, fs_in.TexUV).rgb;
   } else {
-    ambient = light.Ambient * default_color;
-    diffuse = light.Diffuse * diff * default_color;
+    ambient = light.Ambient * DEFAULT_FRAG_COLOR;
+    diffuse = light.Diffuse * diff * DEFAULT_FRAG_COLOR;
   }
   ambient *= attenuation;
   diffuse *= attenuation;
   vec3 specular;
-  if (hasSpecular > 0) {
-    specular = light.Specular * spec * texture(material.Specular, pass_TexUV).rgb;
+  if (u_has_specular_tex > 0) {
+    specular = light.Specular * spec * texture(u_material.Specular, fs_in.TexUV).r;
   } else {
     specular = vec3(1,1,1);
   }
   specular *= attenuation;
   return (ambient + diffuse + specular);
 }
+
 vec3 CalcSpotLight(SpotLight light, vec3 normal, vec3 viewDir){
-  vec3 lightDir = normalize(light.Position - pass_Pos);
+  vec3 lightDir = normalize(light.Position - fs_in.Pos);
   // diffuse shading
   float diff = max(dot(normal, lightDir), 0.0);
   // specular shaing
   float spec;
-  if (hasSpecular > 0) {
+  if (u_has_specular_tex > 0) {
     vec3 reflectDir = reflect(-lightDir, normal);
-    spec = pow(max(dot(viewDir, reflectDir), 0.0), material.Shininess);
+    spec = pow(max(dot(viewDir, reflectDir), 0.0), u_material.Shininess);
   }
   // attenuation
-  float dist = length(light.Position - pass_Pos);
+  float dist = length(light.Position - fs_in.Pos);
   float attenuation = 1.0 / (light.Constant + light.Linear * dist + light.Quadratic * (dist * dist));
   // cone of light
   float theta = dot(lightDir, normalize(-light.Direction));
@@ -125,15 +135,15 @@ vec3 CalcSpotLight(SpotLight light, vec3 normal, vec3 viewDir){
   // combine results
    vec3 ambient;
    vec3 diffuse;
-  if (hasAlbedo > 0) {
-    ambient = light.Ambient * texture(material.Albedo, pass_TexUV).rgb;
-    diffuse = light.Diffuse * diff * texture(material.Albedo, pass_TexUV).rgb;
+  if (u_has_albedo_tex > 0) {
+    ambient = light.Ambient * texture(u_material.Albedo, fs_in.TexUV).rgb;
+    diffuse = light.Diffuse * diff * texture(u_material.Albedo, fs_in.TexUV).rgb;
   } else {
-    ambient = light.Ambient * default_color;
-    diffuse = light.Diffuse * diff * default_color;
+    ambient = light.Ambient * DEFAULT_FRAG_COLOR;
+    diffuse = light.Diffuse * diff * DEFAULT_FRAG_COLOR;
   }
-  if (hasSpecular > 0) {
-    vec3 specular = light.Specular * spec * texture(material.Specular, pass_TexUV).rgb;
+  if (u_has_specular_tex > 0) {
+    vec3 specular = light.Specular * spec * texture(u_material.Specular, fs_in.TexUV).r;
     ambient *= attenuation * intensity;
     diffuse *= attenuation * intensity;
     specular *= attenuation * intensity;
@@ -144,26 +154,24 @@ vec3 CalcSpotLight(SpotLight light, vec3 normal, vec3 viewDir){
     return (ambient + diffuse);
   }
 }
+
 void main()
 {
   vec3 normal;
-  if (hasNormal > 0) {
-    normal = texture(material.Normal, pass_TexUV).rgb;
+  if (u_has_normal_tex > 0) {
+    normal = texture(u_material.Normal, fs_in.TexUV).rgb;
     normal = normalize(normal * 2.0 - 1.0);
   } else {
-    normal = normalize(pass_Norm * 2.0 - 1.0);
+    normal = normalize(fs_in.Norm * 2.0 - 1.0);
   }
-  vec3 view_dir = normalize(u_view_pos - pass_Pos);
+  vec3 view_dir = normalize(u_view_pos - fs_in.Pos);
   vec3 result;
-  if (isDirectionalLightOn > 0)
-    result += CalcDirectionalLight(normal, view_dir);
+  if (u_is_dir_light_on > 0) { result += Calcu_dir_light(normal, view_dir); }
   int i = 0;
-  for (i; i < NUM_POINT_LIGHTS; i++)
-    result += CalcPointLight(pointLight[i], normal, view_dir);
-  for (i = 0; i < NUM_SPOT_LIGHTS; i++)
-    result += CalcSpotLight(spotLight[i], normal, view_dir);
-  if (hasEmission   0) {
-    vec3 emission = texture(material.Emission, pass_TexUV).rgb;
+  for (i; i < u_num_point_lights_in_use; i++) { result += Calcu_point_lights(u_point_lights[i], normal, view_dir); }
+  for (i = 0; i < u_num_spot_lights_in_use; i++) { result += CalcSpotLight(u_spot_lights[i], normal, view_dir); }
+  if (u_has_emission_tex > 0) {
+    vec3 emission = texture(u_material.Emission, fs_in.TexUV).rgb;
     result += emission;
   }
   out_Color = vec4(result, 1.0);
